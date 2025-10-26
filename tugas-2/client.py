@@ -27,7 +27,6 @@ class ChatClient:
 
                 msg_length = int.from_bytes(message, 'big')
 
-                # Receive the actual JSON message
                 json_data = b''
                 while len(json_data) < msg_length:
                     chunk = self.client.recv(
@@ -50,7 +49,7 @@ class ChatClient:
                         encrypted_text, verbose=False)
                     plaintext = self.des.processOriginalText(
                         decrypted_bin, "text", size)
-                    print(f"\n{sender}: {plaintext}")
+                    print(f"\n{sender}: {plaintext}\n")
                 except Exception as e:
                     print(f"\n[Error decrypting message from {sender}: {e}]")
             except Exception as e:
@@ -59,7 +58,6 @@ class ChatClient:
                 break
 
     def send(self):
-        """Encrypt and send messages"""
         while True:
             try:
                 message = str(input(''))
@@ -67,7 +65,6 @@ class ChatClient:
                     self.client.close()
                     break
 
-                # Encrypt the message
                 encrypted_bin = self.des.Encrypt(
                     message, 'string', verbose=False)
 
@@ -97,12 +94,10 @@ class ChatClient:
             print(f'Connected to server at {self.host}:{self.port}')
             print('Type /quit to exit\n')
 
-            # Start threads for receiving and sending
             receive_thread = threading.Thread(target=self.receive)
             receive_thread.daemon = True
             receive_thread.start()
 
-            # Run send in main thread so we can exit cleanly
             self.send()
 
         except Exception as e:

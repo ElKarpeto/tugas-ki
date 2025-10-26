@@ -21,7 +21,6 @@ class ChatServer:
     def handle_client(self, client):
         while True:
             try:
-                # Receive message length first
                 length_data = client.recv(4)
                 if not length_data:
                     self.remove_client(client)
@@ -29,7 +28,6 @@ class ChatServer:
 
                 msg_length = int.from_bytes(length_data, 'big')
 
-                # Receive the actual message
                 message = b''
                 while len(message) < msg_length:
                     chunk = client.recv(min(msg_length - len(message), 4096))
@@ -38,7 +36,6 @@ class ChatServer:
                     message += chunk
 
                 if message:
-                    # Broadcast with length header to other clients
                     self.broadcast(length_data + message, client)
                 else:
                     self.remove_client(client)
@@ -54,7 +51,7 @@ class ChatServer:
             self.clients.remove(client)
             nickname = self.nicknames[index]
             self.nicknames.remove(nickname)
-            print(f'{nickname} disconnected')
+            print(f'{nickname} DISCONNECTED')
             client.close()
 
     def start(self):
@@ -66,7 +63,6 @@ class ChatServer:
             client, address = self.server.accept()
             print(f'Connected with {str(address)}')
 
-            # Get nickname
             client.send('NICK'.encode('utf-8'))
             nickname = client.recv(1024).decode('utf-8')
 
@@ -81,5 +77,10 @@ class ChatServer:
 
 
 if __name__ == "__main__":
-    server = ChatServer()
+    print('=== DES Encrypted Chat Server ===\n')
+    host = input(
+        'Enter host (default: 0.0.0.0 for all interfaces): ') or '0.0.0.0'
+    port = input('Enter port (default: 5555): ') or '5555'
+
+    server = ChatServer(host=host, port=int(port))
     server.start()
