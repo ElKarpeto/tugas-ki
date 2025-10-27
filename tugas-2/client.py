@@ -1,9 +1,30 @@
 import socket
 import threading
 import json
+import base64
+import zlib
 from des import DES
 
 key = "80c4fdc3543fca7b"
+
+
+def b64e(b: bytes) -> str:
+    return base64.b64encode(b).decode("ascii")
+
+
+def b64d(s: str) -> bytes:
+    return base64.b64decode(s.encode("ascii"))
+
+
+def bitstr_to_bytes(bits: str) -> bytes:
+    # prepare lek  bukan kelipatan 8
+    if len(bits) % 8 != 0:
+        bits = bits + "0" * (8 - (len(bits) % 8))
+    return bytes(int(bits[i:i + 8], 2) for i in range(0, len(bits), 8))
+
+
+def bytes_to_bitstr(b: bytes) -> str:
+    return "".join(f"{byte:08b}" for byte in b)
 
 
 class ChatClient:
@@ -13,24 +34,28 @@ class ChatClient:
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.des = None
         self.nickname: str = ""
+        # sequence number sederhana untuk pengiriman
+        self.seq_send: int = 0  
 
     def receive(self) -> None:
         while True:
             try:
-                message = self.client.recv(4)
-                if not message:
+                # baca header 4 byte (panjang payload) ATAU "NICK"
+                header = self.client.recv(4)
+                if not header:
                     break
 
-                if message == b'NICK':
+                # handshake nickname
+                if header == b'NICK':
                     self.client.send(self.nickname.encode('utf-8'))
                     continue
 
-                msg_length = int.from_bytes(message, 'big')
+                msg_length = int.from_bytes(header, 'big')
 
+                # baca payload JSON sesuai panjang
                 json_data = b''
                 while len(json_data) < msg_length:
-                    chunk = self.client.recv(
-                        min(msg_length - len(json_data), 4096))
+                    chunk = self.client.recv(min(msg_length - len(json_data), 4096))
                     if not chunk:
                         break
                     json_data += chunk
@@ -38,20 +63,33 @@ class ChatClient:
                 if not json_data:
                     break
 
-                json_message = json.loads(json_data.decode('utf-8'))
+                obj = json.loads(json_data.decode('utf-8'))
 
-                sender = json_message['sender']
-                encrypted_text = json_message['message']
-                size = json_message['size']
+                sender = obj.get('sender', 'UNKNOWN')
+                enc_b64 = obj.get('message', '')
+                size = int(obj.get('size', 0))
+                seq = obj.get('seq', None)
+                recv_crc = obj.get('crc32', None)
+
+                # ---- upgrade: verifikasi CRC32 di atas bytes ciphertext
+                ct_bytes = b64d(enc_b64)
+                calc_crc = zlib.crc32(ct_bytes) & 0xffffffff
+                if recv_crc is None or int(recv_crc) != calc_crc:
+                    print(f"\n[DROP] CRC mismatch (pesan diduga diubah). from={sender} seq={seq}")
+                    continue
+
+                # konversi lagi ke bitstring biar kompatibel ama DES.Decrypt()
+                ct_bits = bytes_to_bitstr(ct_bytes)
 
                 try:
-                    decrypted_bin = self.des.Decrypt(
-                        encrypted_text, verbose=False)
-                    plaintext = self.des.processOriginalText(
-                        decrypted_bin, "text", size)
+                    decrypted_bits = self.des.Decrypt(ct_bits, verbose=False)
+                    plaintext = self.des.processOriginalText(decrypted_bits, "text", size)
 
-                    print(f"{sender}:")
-                    print(f"message: {encrypted_text}")
+                    if seq is not None:
+                        print(f"[seq {seq}] {sender}:")
+                    else:
+                        print(f"{sender}:")
+                    print(f"cipher (base64): {enc_b64}")
                     print(f"plaintext: {plaintext}\n")
                 except Exception as e:
                     print(f"\n[Error decrypting message from {sender}: {e}]")
@@ -68,16 +106,25 @@ class ChatClient:
                     self.client.close()
                     break
 
-                encrypted_bin = self.des.Encrypt(
-                    message, 'string', verbose=False)
+                # enkripsi -> dapat bitstring dari DES.Encrypt
+                encrypted_bits = self.des.Encrypt(message, 'string', verbose=False)
+
+                # kirim sebagai base64, plus CRC32 dan seq
+                ct_bytes = bitstr_to_bytes(encrypted_bits)
+                enc_b64 = b64e(ct_bytes)
+
+                self.seq_send += 1
+                crc = zlib.crc32(ct_bytes) & 0xffffffff
 
                 full_message = {
                     'sender': self.nickname,
-                    'message': encrypted_bin,
-                    'size': len(message)
+                    'message': enc_b64,     # base64
+                    'size': len(message),   # trim plaintext
+                    'seq': self.seq_send,   # nomor urut so log jadi rapi
+                    'crc32': crc            # checksum ringan untuk demo tamper detect
                 }
 
-                message_json = json.dumps(full_message)
+                message_json = json.dumps(full_message, ensure_ascii=False)
                 message_bytes = message_json.encode('utf-8')
 
                 length_header = len(message_bytes).to_bytes(4, 'big')
