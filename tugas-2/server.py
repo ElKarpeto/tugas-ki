@@ -77,7 +77,6 @@ class ChatServer:
 
 
 if __name__ == "__main__":
-    print('=== DES Encrypted Chat Server ===\n')
     host = input(
         'Enter host (default: 0.0.0.0 for all interfaces): ') or '0.0.0.0'
     port = input('Enter port (default: 5555): ') or '5555'

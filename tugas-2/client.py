@@ -7,14 +7,14 @@ key = "80c4fdc3543fca7b"
 
 
 class ChatClient:
-    def __init__(self, host='localhost', port=5555):
+    def __init__(self, host: str = 'localhost', port: int = 5555) -> None:
         self.host = host
         self.port = port
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.des = None
         self.nickname: str = ""
 
-    def receive(self):
+    def receive(self) -> None:
         while True:
             try:
                 message = self.client.recv(4)
@@ -49,7 +49,10 @@ class ChatClient:
                         encrypted_text, verbose=False)
                     plaintext = self.des.processOriginalText(
                         decrypted_bin, "text", size)
-                    print(f"\n{sender}: {plaintext}\n")
+
+                    print(f"{sender}:")
+                    print(f"message: {encrypted_text}")
+                    print(f"plaintext: {plaintext}\n")
                 except Exception as e:
                     print(f"\n[Error decrypting message from {sender}: {e}]")
             except Exception as e:
@@ -57,7 +60,7 @@ class ChatClient:
                 self.client.close()
                 break
 
-    def send(self):
+    def send(self) -> None:
         while True:
             try:
                 message = str(input(''))
@@ -77,7 +80,6 @@ class ChatClient:
                 message_json = json.dumps(full_message)
                 message_bytes = message_json.encode('utf-8')
 
-                # Send length first (4 bytes), then the actual message
                 length_header = len(message_bytes).to_bytes(4, 'big')
                 self.client.send(length_header + message_bytes)
             except Exception as e:
@@ -105,11 +107,8 @@ class ChatClient:
 
 
 if __name__ == "__main__":
-    print('=== DES Encrypted Chat Client ===\n')
-
-    # You can customize host and port
-    host = input('Enter server host (default: localhost): ') or 'localhost'
-    port = input('Enter server port (default: 5555): ') or '5555'
+    host = input('Enter server host: ') or 'localhost'
+    port = input('Enter server port (e.g. 5555): ') or '5555'
 
     client = ChatClient(host, int(port))
     client.start()
