@@ -3,6 +3,7 @@ import threading
 import json
 import base64
 import zlib
+import time
 from des import DES
 from rsa import RSA
 
@@ -15,7 +16,6 @@ class ChatClient:
         self.des = None
         self.rsa = RSA()
         self.nickname: str = ""
-        # sequence number sederhana untuk pengiriman
         self.seq_send: int = 0
 
         # generate RSA key
@@ -30,7 +30,6 @@ class ChatClient:
         return base64.b64decode(s.encode("ascii"))
 
     def bitstr_to_bytes(self, bits: str) -> bytes:
-        # prepare lek  bukan kelipatan 8
         if len(bits) % 8 != 0:
             bits = bits + "0" * (8 - (len(bits) % 8))
         return bytes(int(bits[i:i + 8], 2) for i in range(0, len(bits), 8))
@@ -44,21 +43,28 @@ class ChatClient:
         if header != b"NICK":
             raise Exception("Expected NICK header from server")
 
-        # send nickname + public key
+        # kirim nickname ama public key
         payload = {
             'nickname': self.nickname,
             'key': list(self.public_key)
         }
         self.client.send(json.dumps(payload).encode('utf-8'))
 
-        encrypted_key_bytes = self.client.recv(4096)
-        encrypted_key_int = int(encrypted_key_bytes.decode('utf-8'))
+        # nerima handshake packet dari JSON
+        encrypted_key_json = self.client.recv(4096).decode('utf-8')
+        packet = json.loads(encrypted_key_json)
 
-        # decrypt DES key dengan private key client
+        # retrieve key yang udah keenkripsi plus ama timestampnya
+        encrypted_key_int = int(packet["des_key"])
+        timestamp = packet.get("timestamp", 0)
+
         d, n = self.private_key
         des_key_int = self.rsa.decrypt(encrypted_key_int, d, n)
-
         des_key = self.rsa.Int2hex(des_key_int)
+
+        # validasi timestamp tok
+        if abs(time.time() - timestamp) > 120:  # 2 menit max, ojok kelamaan wkkwwk
+            raise Exception("Handshake expired or replay detected")
 
         print(f"Received DES key (hex): {des_key}")
         self.des = DES(des_key)
@@ -66,18 +72,15 @@ class ChatClient:
     def receive(self) -> None:
         while True:
             try:
-                # baca header 4 byte (panjang payload) ATAU "NICK"
                 header = self.client.recv(4)
                 if not header:
                     break
 
                 msg_length = int.from_bytes(header, 'big')
 
-                # baca payload JSON sesuai panjang
                 json_data = b''
                 while len(json_data) < msg_length:
-                    chunk = self.client.recv(
-                        min(msg_length - len(json_data), 4096))
+                    chunk = self.client.recv(min(msg_length - len(json_data), 4096))
                     if not chunk:
                         break
                     json_data += chunk
@@ -93,21 +96,17 @@ class ChatClient:
                 seq = obj.get('seq', None)
                 recv_crc = obj.get('crc32', None)
 
-                # ---- upgrade: verifikasi CRC32 di atas bytes ciphertext
                 ct_bytes = self.b64d(enc_b64)
                 calc_crc = zlib.crc32(ct_bytes) & 0xffffffff
                 if recv_crc is None or int(recv_crc) != calc_crc:
-                    print(
-                        f"\n[DROP] CRC mismatch (pesan diduga diubah). from={sender} seq={seq}")
+                    print(f"\n[DROP] CRC mismatch. From={sender} seq={seq}")
                     continue
 
-                # konversi lagi ke bitstring biar kompatibel ama DES.Decrypt()
                 ct_bits = self.bytes_to_bitstr(ct_bytes)
 
                 try:
                     decrypted_bits = self.des.Decrypt(ct_bits, verbose=False)
-                    plaintext = self.des.processOriginalText(
-                        decrypted_bits, "text", size)
+                    plaintext = self.des.processOriginalText(decrypted_bits, "text", size)
 
                     if seq is not None:
                         print(f"[seq {seq}] {sender}:")
@@ -116,7 +115,7 @@ class ChatClient:
                     print(f"cipher (base64): {enc_b64}")
                     print(f"plaintext: {plaintext}\n")
                 except Exception as e:
-                    print(f"\n[Error decrypting message from {sender}: {e}]")
+                    print(f"[Error decrypting message from {sender}: {e}]")
             except Exception as e:
                 print(f'\n[Connection error: {e}]')
                 self.client.close()
@@ -133,11 +132,8 @@ class ChatClient:
                     self.client.close()
                     break
 
-                # enkripsi -> dapat bitstring dari DES.Encrypt
-                encrypted_bits = self.des.Encrypt(
-                    message, 'string', verbose=False)
+                encrypted_bits = self.des.Encrypt(message, 'string', verbose=False)
 
-                # kirim sebagai base64, plus CRC32 dan seq
                 ct_bytes = self.bitstr_to_bytes(encrypted_bits)
                 enc_b64 = self.b64e(ct_bytes)
 
@@ -146,10 +142,10 @@ class ChatClient:
 
                 full_message = {
                     'sender': self.nickname,
-                    'message': enc_b64,     # base64
-                    'size': len(message),   # trim plaintext
-                    'seq': self.seq_send,   # nomor urut so log jadi rapi
-                    'crc32': crc            # checksum ringan untuk demo tamper detect
+                    'message': enc_b64,
+                    'size': len(message),
+                    'seq': self.seq_send,
+                    'crc32': crc
                 }
 
                 message_json = json.dumps(full_message, ensure_ascii=False)
@@ -170,7 +166,6 @@ class ChatClient:
             print(f'Connected to server at {self.host}:{self.port}')
             print('Type /quit to exit\n')
 
-            # handshake untuk mendapatkan DES key
             self.handshake()
 
             receive_thread = threading.Thread(target=self.receive)
@@ -178,7 +173,6 @@ class ChatClient:
             receive_thread.start()
 
             self.send()
-
         except Exception as e:
             print(f'Could not connect to server: {e}')
 
