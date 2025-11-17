@@ -1,9 +1,9 @@
 import json
 import socket
 import threading
+import secrets
+import time
 from rsa import RSA
-
-key = "85c88ce6f07d529d"
 
 
 class ChatServer:
@@ -15,6 +15,7 @@ class ChatServer:
         self.nicknames = []
 
     def broadcast(self, message, sender_socket=None):
+        # broadcast ke semua klien selain yang mengirim
         for client in self.clients:
             if client != sender_socket:
                 try:
@@ -40,7 +41,7 @@ class ChatServer:
                     message += chunk
 
                 if message:
-                    self.broadcast(length_data + message, client)
+                    self.broadcast(length_data + message, client) #broadcast ke klien lain
                 else:
                     self.remove_client(client)
                     break
@@ -69,29 +70,40 @@ class ChatServer:
             client, address = self.server.accept()
             print(f'Connected with {str(address)}')
 
-            # handshake nickname + public key
+            #handshake server buat kirim header NICK
             client.send('NICK'.encode('utf-8'))
             response = client.recv(4096).decode('utf-8')
             payload = json.loads(response)
 
-            self.nicknames.append(payload['nickname'])
+            nickname = payload.get('nickname', 'Unknown')
+            self.nicknames.append(nickname)
             self.clients.append(client)
 
-            print(f'Nickname: {payload["nickname"]}')
+            print(f'Nickname: {nickname}')
 
-            # kirim DES key yang terenkripsi dengan public key client
-            encripted_text = rsa.encrypt(rsa.Hex2Int(
-                key), payload['key'][0], payload['key'][1])
-            client.send(str(encripted_text).encode('utf-8'))
+            # generate DES key acak for every client connect
+            des_key = secrets.token_hex(8)  # 64-bit (16 hex chars)
 
-            thread = threading.Thread(
-                target=self.handle_client, args=(client,))
+            encrypted_key_int = rsa.encrypt(
+                rsa.Hex2Int(des_key), payload['key'][0], payload['key'][1])
+
+            # timestamp
+            handshake_packet = {
+                "des_key": str(encrypted_key_int),
+                "timestamp": time.time()  # deteksi replay
+            }
+
+            # handshake ke klien
+            client.send(json.dumps(handshake_packet).encode('utf-8'))
+            print(f"Sent DES key (hex) to {nickname}: {des_key}")
+
+            # thread penanganan pesan dari klien
+            thread = threading.Thread(target=self.handle_client, args=(client,))
             thread.start()
 
 
 if __name__ == "__main__":
-    host = input(
-        'Enter host (default: 0.0.0.0 for all interfaces): ') or '0.0.0.0'
+    host = input('Enter host (default: 0.0.0.0 for all interfaces): ') or '0.0.0.0'
     port = input('Enter port (default: 5555): ') or '5555'
 
     server = ChatServer(host=host, port=int(port))
