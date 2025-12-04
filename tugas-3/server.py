@@ -14,8 +14,11 @@ class ChatServer:
         self.clients = []
         self.nicknames = []
 
+        # Generate DES key GLOBAL sekali aja pak
+        self.global_des_key = secrets.token_hex(8)  # 64-bit DES key (16 hex)
+        print(f"[SERVER] Global DES key: {self.global_des_key}")
+
     def broadcast(self, message, sender_socket=None):
-        # broadcast ke semua klien selain yang mengirim
         for client in self.clients:
             if client != sender_socket:
                 try:
@@ -41,7 +44,7 @@ class ChatServer:
                     message += chunk
 
                 if message:
-                    self.broadcast(length_data + message, client) #broadcast ke klien lain
+                    self.broadcast(length_data + message, client)
                 else:
                     self.remove_client(client)
                     break
@@ -53,10 +56,11 @@ class ChatServer:
     def remove_client(self, client):
         if client in self.clients:
             index = self.clients.index(client)
-            self.clients.remove(client)
             nickname = self.nicknames[index]
+            print(f"{nickname} DISCONNECTED")
+
+            self.clients.remove(client)
             self.nicknames.remove(nickname)
-            print(f'{nickname} DISCONNECTED')
             client.close()
 
     def start(self):
@@ -64,47 +68,48 @@ class ChatServer:
 
         self.server.bind((self.host, self.port))
         self.server.listen()
-        print(f'Server started on {self.host}:{self.port}')
+        print(f"[SERVER] Running on {self.host}:{self.port}")
 
         while True:
             client, address = self.server.accept()
-            print(f'Connected with {str(address)}')
+            print(f"Connected with {address}")
 
-            #handshake server buat kirim header NICK
-            client.send('NICK'.encode('utf-8'))
+            # Request nickname
+            client.send(b'NICK')
             response = client.recv(4096).decode('utf-8')
             payload = json.loads(response)
 
             nickname = payload.get('nickname', 'Unknown')
+            e = payload['key'][0]
+            n = payload['key'][1]
+
             self.nicknames.append(nickname)
             self.clients.append(client)
 
-            print(f'Nickname: {nickname}')
+            print(f"Nickname: {nickname}")
 
-            # generate DES key acak for every client connect
-            des_key = secrets.token_hex(8)  # 64-bit (16 hex chars)
+            # ================================
+            # 🔥 Kirim DES key GLOBAL yang dienkripsi RSA
+            # ================================
+            encrypted_key = rsa.encrypt(
+                rsa.Hex2Int(self.global_des_key), e, n
+            )
 
-            encrypted_key_int = rsa.encrypt(
-                rsa.Hex2Int(des_key), payload['key'][0], payload['key'][1])
-
-            # timestamp
             handshake_packet = {
-                "des_key": str(encrypted_key_int),
-                "timestamp": time.time()  # deteksi replay
+                "des_key": str(encrypted_key),
+                "timestamp": time.time()
             }
 
-            # handshake ke klien
             client.send(json.dumps(handshake_packet).encode('utf-8'))
-            print(f"Sent DES key (hex) to {nickname}: {des_key}")
+            print(f"[SERVER] Sent DES key to {nickname}")
 
-            # thread penanganan pesan dari klien
             thread = threading.Thread(target=self.handle_client, args=(client,))
             thread.start()
 
 
 if __name__ == "__main__":
-    host = input('Enter host (default: 0.0.0.0 for all interfaces): ') or '0.0.0.0'
-    port = input('Enter port (default: 5555): ') or '5555'
+    host = input("Host (default 0.0.0.0): ") or "0.0.0.0"
+    port = input("Port (default 5555): ") or "5555"
 
-    server = ChatServer(host=host, port=int(port))
+    server = ChatServer(host, int(port))
     server.start()
