@@ -1,6 +1,6 @@
 from math import gcd
 from sympy import randprime
-
+import hashlib
 
 class RSA:
     def Hex2Int(self, s: str) -> int:
@@ -11,7 +11,6 @@ class RSA:
 
     def modInverse(self, e: int, phi: int) -> int:
         d = pow(e, -1, phi)
-
         while d < 0:
             d += phi
         return d
@@ -24,7 +23,7 @@ class RSA:
         phi = (p - 1) * (q - 1)
 
         e = 0
-        for i in range(2, phi, 1):
+        for i in range(2, phi):
             if gcd(i, phi) == 1:
                 e = i
                 break
@@ -37,3 +36,8 @@ class RSA:
 
     def decrypt(self, cipher: int, d: int, n: int) -> int:
         return pow(cipher, d, n)
+
+    # NEW: hash → integer
+    def sha256_int(self, text: str) -> int:
+        h = hashlib.sha256(text.encode()).hexdigest()
+        return int(h, 16)
