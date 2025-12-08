@@ -129,3 +129,70 @@ class ChatClient:
 
                 decrypted = self.des.Decrypt(ct_bits, verbose=False)
                 plaintext = self.des.processOriginalText(decrypted, "text", size)
+
+                print(f"[seq {seq}] {sender}: {plaintext}")
+
+            except Exception as e:
+                print("Receive error:", e)
+                self.client.close()
+                break
+
+    # ================================
+    # SEND
+    # ================================
+    def send(self):
+        while True:
+            try:
+                text = input("")
+                if text.lower() == "/quit":
+                    self.client.close()
+                    break
+
+                enc_bits = self.des.Encrypt(text, "string", verbose=False)
+                ct_bytes = self.bitstr_to_bytes(enc_bits)
+                enc_b64 = self.b64e(ct_bytes)
+
+                self.seq_send += 1
+                crc = zlib.crc32(ct_bytes) & 0xffffffff
+
+                msg = {
+                    "sender": self.nickname,
+                    "message": enc_b64,
+                    "size": len(text),
+                    "seq": self.seq_send,
+                    "crc32": crc
+                }
+
+                raw = json.dumps(msg).encode()
+                header = len(raw).to_bytes(4, "big")
+                self.client.send(header + raw)
+
+            except Exception as e:
+                print("Send error:", e)
+                self.client.close()
+                break
+
+    # ================================
+    # START
+    # ================================
+    def start(self):
+        self.nickname = input("Enter nickname: ")
+
+        try:
+            self.client.connect((self.host, self.port))
+            print(f"Connected to {self.host}:{self.port}")
+
+            self.handshake()
+
+            threading.Thread(target=self.receive, daemon=True).start()
+            self.send()
+
+        except Exception as e:
+            print("Connection failed:", e)
+
+
+if __name__ == "__main__":
+    host = input("Server host (default localhost): ") or "localhost"
+    port = input("Server port (default 5555): ") or "5555"
+
+    ChatClient(host, int(port)).start()
