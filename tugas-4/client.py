@@ -49,7 +49,8 @@ class ChatClient:
         if payload.get("header") != "NICK":
             raise Exception("Invalid handshake header")
 
-        public_key_server = tuple(payload["key"])
+        # Simpan Public Key Server untuk verifikasi nanti
+        self.server_public_key = tuple(payload["key"])
 
         # 2. send nickname + public key client
         payload = {
@@ -58,38 +59,27 @@ class ChatClient:
         }
         self.client.send(json.dumps(payload).encode())
 
-        # 3. receive DES key + encrypted signature
-        packet = json.loads(self.client.recv(4096).decode())
+        message = self.client.recv(4096).decode()
+        packet = json.loads(message)
+        encrypted_des_key = packet["enc_des_key"]
+        signature = packet["signature"]
 
-        des_key = packet["des_key"]
-        encrypted_signature = int(packet["signature"])
-
-        # 4. decrypt signature with client private key (Decryption)
+        des_key = self.rsa.decrypt(
+            encrypted_des_key, self.private_key[0], self.private_key[1])
         signature = self.rsa.decrypt(
-            encrypted_signature,
-            self.private_key[0],
-            self.private_key[1]
-        )
+            signature, self.server_public_key[0], self.server_public_key[1])
 
-        # 5. verify signature using server PUBLIC KEY (Verification)
-        # Menggunakan rsa.encrypt karena kita menggunakan public exponent (e) untuk verifikasi
-        verified_hash = self.rsa.encrypt( # <--- PERBAIKAN DI SINI
-            signature,
-            public_key_server[0],
-            public_key_server[1]
-        )
+        # C. Bandingkan Hash
+        if des_key != signature:
+            raise Exception(
+                "[SECURITY] Invalid Signature! Server verification failed.")
 
-        # 6. compute local hash
-        local_hash = self.rsa.sha256_int(des_key)
-
-        if verified_hash != local_hash:
-            raise Exception("[SECURITY] Invalid Signature! DES key is not authentic.")
-        
-        print("[CLIENT] Signature verified — DES key authentic!")
-        print(f"[CLIENT] DES key: {des_key}")
+        des_key_str = self.rsa.Int2hex(des_key)
+        print("[CLIENT] Signature verified — DES key authentic from Server!")
+        print(f"[CLIENT] DES key: {des_key_str}")
 
         # Initialize DES
-        self.des = DES(des_key)
+        self.des = DES(des_key_str)
 
     # ================================
     # RECEIVE
@@ -129,7 +119,8 @@ class ChatClient:
                 ct_bits = self.bytes_to_bitstr(ct_bytes)
 
                 decrypted = self.des.Decrypt(ct_bits, verbose=False)
-                plaintext = self.des.processOriginalText(decrypted, "text", size)
+                plaintext = self.des.processOriginalText(
+                    decrypted, "text", size)
 
                 print(f"[seq {seq}] {sender}: {plaintext}")
 

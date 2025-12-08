@@ -5,6 +5,7 @@ import secrets
 import time
 from rsa import RSA
 
+
 class ChatServer:
     def __init__(self, host='localhost', port=5555):
         self.host = host
@@ -63,19 +64,20 @@ class ChatServer:
                 break
 
     def handshake(self, client, rsa: RSA):
-        # generate keypair server
+        # 1. Setup Key Server
         e_s, d_s, n_s = rsa.generateKeys()
         public_key_server = (e_s, n_s)
         private_key_server = (d_s, n_s)
 
-        # kirim PUBLIC KEY SERVER ke client
+        # 2. Tukar Public Key
+        # Kirim Public Key Server
         payload = {
             "header": "NICK",
             "key": list(public_key_server)
         }
         client.send(json.dumps(payload).encode())
 
-        # terima nickname & PUBLIC KEY CLIENT
+        # Terima Public Key Client
         resp = client.recv(4096).decode()
         data = json.loads(resp)
         nickname = data["nickname"]
@@ -85,30 +87,19 @@ class ChatServer:
         self.nicknames.append(nickname)
         print(f"[SERVER] {nickname} connected.")
 
-        # SIGNATURE PROPER
+        signature = rsa.encrypt(rsa.Hex2Int(
+            self.global_des_key), private_key_server[0], private_key_server[1])
+        encrypted_des_key = rsa.encrypt(rsa.Hex2Int(
+            self.global_des_key), public_key_client[0], public_key_client[1])
 
-        # HASH DES KEY
-        hashed = rsa.sha256_int(self.global_des_key)
-
-        # SIGN hash dengan PRIVATE KEY SERVER
-        signature = rsa.encrypt(hashed, private_key_server[0], private_key_server[1])
-
-        # ENCRYPT signature pakai PUBLIC KEY CLIENT
-        encrypted_signature = rsa.encrypt(
-            signature,
-            public_key_client[0],
-            public_key_client[1]
-        )
-
-        # kirim DESKEY + SIGNATURE
-        packet = {
-            "des_key": self.global_des_key,
-            "signature": str(encrypted_signature),
-            "timestamp": time.time()
+        message_packet = {
+            "enc_des_key": encrypted_des_key,
+            "signature": signature
         }
-        client.send(json.dumps(packet).encode())
 
-        print(f"[SERVER] Sent DES key + signature to {nickname}")
+        client.send(json.dumps(message_packet).encode())
+
+        print(f"[SERVER] Sent Encrypted DES key + Signature to {nickname}")
 
     def start(self):
         rsa = RSA()
@@ -123,7 +114,8 @@ class ChatServer:
 
             self.handshake(client, rsa)
 
-            thread = threading.Thread(target=self.handle_client, args=(client,))
+            thread = threading.Thread(
+                target=self.handle_client, args=(client,))
             thread.start()
 
 

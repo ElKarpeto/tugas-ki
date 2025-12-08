@@ -2,6 +2,7 @@ from math import gcd
 from sympy import randprime
 import hashlib
 
+
 class RSA:
     def Hex2Int(self, s: str) -> int:
         return int(s, 16)
@@ -16,8 +17,8 @@ class RSA:
         return d
 
     def generateKeys(self) -> tuple[int, int, int]:
-        p = randprime(1_000_000_000, 9_999_999_999)
-        q = randprime(1_000_000_000, 9_999_999_999)
+        p = randprime(1_000_000_000_000_000, 9_999_999_999_999_999)
+        q = randprime(1_000_000_000_000_000, 9_999_999_999_999_999)
 
         n = p * q
         phi = (p - 1) * (q - 1)
