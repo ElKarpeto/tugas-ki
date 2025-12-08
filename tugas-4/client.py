@@ -64,15 +64,16 @@ class ChatClient:
         des_key = packet["des_key"]
         encrypted_signature = int(packet["signature"])
 
-        # 4. decrypt signature with client private key
+        # 4. decrypt signature with client private key (Decryption)
         signature = self.rsa.decrypt(
             encrypted_signature,
             self.private_key[0],
             self.private_key[1]
         )
 
-        # 5. verify signature using server PUBLIC KEY
-        verified_hash = self.rsa.decrypt(
+        # 5. verify signature using server PUBLIC KEY (Verification)
+        # Menggunakan rsa.encrypt karena kita menggunakan public exponent (e) untuk verifikasi
+        verified_hash = self.rsa.encrypt( # <--- PERBAIKAN DI SINI
             signature,
             public_key_server[0],
             public_key_server[1]
