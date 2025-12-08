@@ -38,9 +38,8 @@ class ChatClient:
     def bytes_to_bitstr(self, b: bytes) -> str:
         return "".join(f"{byte:08b}" for byte in b)
 
-    # ================================
+
     # HANDSHAKE (Signature Verify)
-    # ================================
     def handshake(self):
         # 1. receive public key server
         message = self.client.recv(4096).decode()
@@ -49,10 +48,10 @@ class ChatClient:
         if payload.get("header") != "NICK":
             raise Exception("Invalid handshake header")
 
-        # Simpan Public Key Server untuk verifikasi nanti
+        # Simpan Public Key Server buat verifikasi nanti
         self.server_public_key = tuple(payload["key"])
 
-        # 2. send nickname + public key client
+        # send nickname + public key client
         payload = {
             "nickname": self.nickname,
             "key": list(self.public_key)
@@ -69,7 +68,7 @@ class ChatClient:
         signature = self.rsa.decrypt(
             signature, self.server_public_key[0], self.server_public_key[1])
 
-        # C. Bandingkan Hash
+        # Bandingkan Hash
         if des_key != signature:
             raise Exception(
                 "[SECURITY] Invalid Signature! Server verification failed.")
@@ -81,9 +80,7 @@ class ChatClient:
         # Initialize DES
         self.des = DES(des_key_str)
 
-    # ================================
     # RECEIVE
-    # ================================
     def receive(self):
         while True:
             try:
@@ -129,9 +126,8 @@ class ChatClient:
                 self.client.close()
                 break
 
-    # ================================
+
     # SEND
-    # ================================
     def send(self):
         while True:
             try:
@@ -164,9 +160,7 @@ class ChatClient:
                 self.client.close()
                 break
 
-    # ================================
     # START
-    # ================================
     def start(self):
         self.nickname = input("Enter nickname: ")
 

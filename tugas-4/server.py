@@ -64,12 +64,12 @@ class ChatServer:
                 break
 
     def handshake(self, client, rsa: RSA):
-        # 1. Setup Key Server
+        # Setup Key Server
         e_s, d_s, n_s = rsa.generateKeys()
         public_key_server = (e_s, n_s)
         private_key_server = (d_s, n_s)
 
-        # 2. Tukar Public Key
+        # Tukar Public Key
         # Kirim Public Key Server
         payload = {
             "header": "NICK",
